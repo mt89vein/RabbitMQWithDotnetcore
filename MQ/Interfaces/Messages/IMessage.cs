@@ -21,10 +21,5 @@ namespace MQ.Interfaces.Messages
         /// Идентификатор
         /// </summary>
         Guid Id { get; set; }
-
-        /// <summary>
-        /// Количество возникших повторов
-        /// </summary>
-        int RetryCount { get; set; }
     }
 }

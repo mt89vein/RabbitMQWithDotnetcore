@@ -1,34 +1,62 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQ.Configuration;
 using MQ.Interfaces;
 using MQ.Interfaces.Messages;
+using MQ.PersistentConnection;
 using Newtonsoft.Json;
 using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
+using RabbitMQ.Client.Framing;
 
 namespace MQ.Base
 {
     public abstract class BaseProducerService : BaseQueueService, IBaseProducerService
     {
-        private IBasicProperties _properties;
+        private readonly IBasicProperties _properties;
+        protected readonly IModel Channel;
 
-        public BaseProducerService(IOptions<RabbitMqConnectionSettings> settings, ILogger<BaseProducerService> logger)
-            : base(settings, logger)
+        protected BaseProducerService(
+            IPersistentConnection persistentConnection,
+            IOptions<BaseQueueSettings> settings,
+            ILogger<BaseProducerService> logger)
+            : base(persistentConnection, settings, logger)
         {
-            if (!Subscribe())
+            _properties = new BasicProperties
             {
-                throw new Exception("Не удалось подключиться к брокеру сообщений");
+                Persistent = true,
+                ContentType = "application/json",
+                ContentEncoding = Encoding.UTF8.EncodingName
+            };
+            if (!PersistentConnection.IsConnected)
+            {
+                PersistentConnection.TryConnect();
             }
+
+            Channel = CreateChannel();
+        }
+
+        protected sealed override IModel CreateChannel()
+        {
+            var channel = base.CreateChannel();
+            channel.ConfirmSelect();
+            return channel;
         }
 
         public ulong PublishMessage(IMessage message)
         {
-            Channel.BasicPublish(ExchangeName, RoutingKeyName, _properties, GetConvertedMessage());
-            
-            return Channel.NextPublishSeqNo;
+            if (!PersistentConnection.IsConnected)
+            {
+                PersistentConnection.TryConnect();
+            }
+
+            var nextDeliveryTag = Channel.NextPublishSeqNo;
+            Channel.BasicPublish(Settings.ExchangeName, Settings.RoutingKey, _properties, GetConvertedMessage());
+
+            return nextDeliveryTag;
 
             byte[] GetConvertedMessage()
             {
@@ -40,60 +68,14 @@ namespace MQ.Base
             }
         }
 
-        public void RemoveMessage(ulong id)
+        public void RemoveMessage(ulong deliveryTag)
         {
-            Channel.BasicReject(id, false);
-        }
-
-        /// <summary>
-        /// Событие возникает если сообщение не было доставлено (ошибки роутинга)
-        /// </summary>
-        private void Channel_BasicReturn(object sender, BasicReturnEventArgs e)
-        {
-            Logger.LogError($"Недоставлено сообщение в брокер сообщений: {e.ReplyCode} {e.ReplyText}");
-        }
-
-        /// <summary>
-        /// Событие возникает в случае отмены сообщения
-        /// </summary>
-        private void Channel_BasicNacks(object sender, BasicNackEventArgs e)
-        {
-            Logger.LogError($"Сообщение было отменено: {e.DeliveryTag}");
-        }
-
-        private void Channel_BasicAcks(object sender, BasicAckEventArgs e)
-        {
-            Logger.LogInformation($"Принято сообщение в брокере сообщений: {e.DeliveryTag}");
-        }
-
-        protected override IModel CreateChannel()
-        {
-            base.CreateChannel();
-
-            Channel.ConfirmSelect();
-            Channel.WaitForConfirmsOrDie();
-
-            Channel.BasicAcks += Channel_BasicAcks;
-            Channel.BasicNacks += Channel_BasicNacks;
-            Channel.BasicReturn += Channel_BasicReturn;
-            Channel.ModelShutdown += (sender, args) => Subscribe();
-
-            return Channel;
-        }
-
-        protected sealed override bool Subscribe()
-        {
-            if (!base.Subscribe())
+            if (!PersistentConnection.IsConnected)
             {
-                return false;
+                PersistentConnection.TryConnect();
             }
 
-            _properties = Channel.CreateBasicProperties();
-            _properties.Persistent = true;
-            _properties.ContentType = "application/json";
-            _properties.ContentEncoding = Encoding.UTF8.EncodingName;
-
-            return true;
+            Channel.BasicReject(deliveryTag, false);
         }
     }
 }

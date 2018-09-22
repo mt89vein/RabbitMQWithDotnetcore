@@ -22,7 +22,7 @@ namespace Client.Controllers
         [HttpGet]
         public ActionResult Get()
         {
-            for (int i = 0; i < 10000; i++)
+            for (int i = 0; i < 1; i++)
             {
                 var message = new PublishQueueMessage
                 {

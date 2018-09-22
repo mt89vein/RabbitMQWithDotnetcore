@@ -1,6 +1,6 @@
 ﻿namespace MQ.Configuration
 {
-    public class RabbitMqConnectionSettings
+    public class BaseQueueSettings
     {
         /// <summary>
         /// Название очереди
@@ -20,26 +20,22 @@
         /// <summary>
         /// Тип обменника
         /// </summary>
-        public string ExchangeType { get; set; } = "direct";
+        public string ExchangeType { get; set; }
 
         /// <summary>
-        /// Имя пользователя
+        /// Количество попыток процессить сообщение в случае возникновения ошибок
         /// </summary>
-        public string UserName { get; set; }
+        public int MaxRetryCount { get; set; }
 
         /// <summary>
-        /// Пароль
+        /// Через сколько повторить
         /// </summary>
-        public string Password { get; set; }
+        /// <remarks>В секундах</remarks>
+        public int RetryDelay { get; set; }
 
-        public string HostName { get; set; }
-
-        public int? Port { get; set; }
-
-        public ushort RequestedHeartbeat { get; set; }
-
-        public int? NetworkRecoveryInterval { get; set; }
-
-        public int? RetryConnectionAttempt { get; set; }
+        /// <summary>
+        /// Применять повторение для сообщений
+        /// </summary>
+        public bool WithDelay { get; set; }
     }
 }

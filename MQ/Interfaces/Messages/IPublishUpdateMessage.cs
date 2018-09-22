@@ -1,9 +1,11 @@
-﻿namespace MQ.Interfaces.Messages
+﻿using MQ.Messages;
+
+namespace MQ.Interfaces.Messages
 {
     /// <summary>
     /// Интерфейс для передачи сообщений в Rabbit MQ в очередь обновления информации о публикации документа
     /// </summary>
-    public interface IPublishUpdateMessage : IMessage
+    public interface IPublishUpdateMessage : IPublishMessage
     {
         /// <summary>
         /// Ссылка на идентификатор документа в публикуемой системе

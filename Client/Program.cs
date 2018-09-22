@@ -16,6 +16,7 @@ namespace Client
                 .ConfigureLogging((hostContext, logging) =>
                 {
                     logging.AddConfiguration(hostContext.Configuration.GetSection("Logging"));
+                    logging.AddDebug();
                     logging.AddConsole();
                 })
                 .UseStartup<Startup>()

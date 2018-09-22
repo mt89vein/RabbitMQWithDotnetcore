@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQ.Configuration;
 using MQ.Interfaces;
+using MQ.PersistentConnection;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
@@ -11,15 +14,50 @@ namespace MQ.Base
 {
     public abstract class BaseConsumerService : BaseQueueService, IBaseConsumerService
     {
-        private EventingBasicConsumer _consumer;
+        protected readonly IModel Channel;
 
-        public BaseConsumerService(IOptions<RabbitMqConnectionSettings> settings, ILogger<BaseConsumerService> logger)
-            : base(settings, logger)
+        protected BaseConsumerService(
+            IPersistentConnection persistentConnection,
+            IOptions<BaseQueueSettings> settings,
+            ILogger<BaseConsumerService> logger)
+            : base(persistentConnection, settings, logger)
         {
-            if (!Subscribe())
+            if (!PersistentConnection.IsConnected)
             {
-                throw new Exception("Не удалось подключиться к брокеру сообщений");
+                PersistentConnection.TryConnect();
             }
+
+            Channel = CreateChannel();
+        }
+
+        public void MarkAsProcessed(ulong deliveryTag)
+        {
+            if (!PersistentConnection.IsConnected)
+            {
+                PersistentConnection.TryConnect();
+            }
+
+            Channel.BasicAck(deliveryTag, false);
+        }
+
+        public void ReEnqueue(ulong deliveryTag)
+        {
+            if (!PersistentConnection.IsConnected)
+            {
+                PersistentConnection.TryConnect();
+            }
+
+            Channel.BasicNack(deliveryTag, false, true);
+        }
+
+        public void MarkAsCancelled(ulong deliveryTag)
+        {
+            if (!PersistentConnection.IsConnected)
+            {
+                PersistentConnection.TryConnect();
+            }
+
+            Channel.BasicReject(deliveryTag, false);
         }
 
         /// <summary>
@@ -27,74 +65,116 @@ namespace MQ.Base
         /// </summary>
         /// <param name="onDequeue">Обработчик сообщения</param>
         /// <param name="onError">Обработчик ошибки</param>
-        public void ProcessQueue(Action<string, ulong> onDequeue, Action<Exception, ulong> onError)
+        public void ProcessQueue(Func<string, ulong, bool> onDequeue, Action<Exception, ulong> onError)
         {
-            if (Channel.IsClosed)
+            if (!PersistentConnection.IsConnected)
             {
-                Channel.Dispose();
-                Channel = CreateChannel();
-                Subscribe();
-            }
-            _consumer = new EventingBasicConsumer(Channel);
-            _consumer.Received += OnConsumerMessageReceived;
-            _consumer.Shutdown += OnConsumerShutdown;
-            Channel.BasicConsume(QueueName, false, _consumer);
-
-            void OnConsumerMessageReceived(object o, BasicDeliverEventArgs e)
-            {
-                var queuedMessage = Encoding.UTF8.GetString(e.Body);
-                onDequeue.Invoke(queuedMessage, e.DeliveryTag);
+                PersistentConnection.TryConnect();
             }
 
-            void OnConsumerShutdown(object o, ShutdownEventArgs e)
+            var consumer = new EventingBasicConsumer(Channel);
+            consumer.Received += (sender, ea) =>
             {
-                ProcessQueue(onDequeue, onError);
-            }
+                try
+                {
+                    var queuedMessage = Encoding.UTF8.GetString(ea.Body);
+                    if (onDequeue.Invoke(queuedMessage, ea.DeliveryTag))
+                    {
+                        MarkAsProcessed(ea.DeliveryTag);
+                    }
+                    else
+                    {
+                        InternalReEnqueue(ea);
+                    }
+                }
+                catch (Exception e)
+                {
+                    onError.Invoke(e, ea.DeliveryTag);
+                    Logger.LogError(e, "Ошибка во время процессинга сообщения");
+                }
+            };
+            consumer.Shutdown += (sender, ea) => ProcessQueue(onDequeue, onError);
+
+            Channel.BasicConsume(Settings.QueueName, false, consumer);
         }
 
-        public void MarkAsProcessed(ulong deliveryTag)
+        public virtual void ProcessQueue(Func<string, ulong, Task<bool>> onDequeue, Action<Exception, ulong> onError)
         {
-            Channel.BasicAck(deliveryTag, false);
-        }
-
-        public void MarkAsCancelled(ulong deliveryTag)
-        {
-            Channel.BasicNack(deliveryTag, false, false);
-        }
-
-        protected override IModel CreateChannel()
-        {
-            base.CreateChannel();
-
-            Channel.BasicQos(0, 1, false);
-
-            return Channel;
-        }
-
-        /// <summary>
-        /// Подписаться на очередь
-        /// </summary>
-        protected sealed override bool Subscribe()
-        {
-            if (!base.Subscribe())
+            if (!PersistentConnection.IsConnected)
             {
-                return false;
+                PersistentConnection.TryConnect();
             }
-            Channel.QueueBind(QueueName, ExchangeName, RoutingKeyName);
 
-            return true;
+            var consumer = new EventingBasicConsumer(Channel);
+            consumer.Received += async (sender, ea) =>
+            {
+                string queuedMessage = Encoding.UTF8.GetString(ea.Body);
+                bool processingSucceded = await onDequeue.Invoke(queuedMessage, ea.DeliveryTag);
+                try
+                {
+                    if (processingSucceded)
+                    {
+                        MarkAsProcessed(ea.DeliveryTag);
+                    }
+                    else
+                    {
+                        InternalReEnqueue(ea);
+                    }
+                }
+                catch (Exception e)
+                {
+                    onError.Invoke(e, ea.DeliveryTag);
+                    Logger.LogError(e, "Ошибка во время отправки результата обработки сообщения");
+                }
+            };
+
+            consumer.Shutdown += (sender, ea) => ProcessQueue(onDequeue, onError);
+
+            Channel.BasicConsume(Settings.QueueName, false, consumer);
         }
 
-        /// <summary>
-        /// Отписаться от очереди
-        /// </summary>
-        protected sealed override void Unsubscribe()
+        protected sealed override IModel CreateChannel()
         {
-            if (!String.IsNullOrEmpty(_consumer?.ConsumerTag))
+            var channel = base.CreateChannel();
+            channel.BasicQos(0, 1, false);
+
+            return channel;
+        }
+
+        protected void InternalReEnqueue(BasicDeliverEventArgs basicDeliverEventArgs)
+        {
+            if (!PersistentConnection.IsConnected)
             {
-                Channel?.BasicCancel(_consumer?.ConsumerTag);
+                PersistentConnection.TryConnect();
             }
-            base.Unsubscribe();
+
+            var retryCount = GetRetryCount(basicDeliverEventArgs.BasicProperties);
+
+            if (retryCount > 0)
+            {
+                SetRetryProperties(basicDeliverEventArgs.BasicProperties, --retryCount);
+
+                Channel.BasicPublish(basicDeliverEventArgs.Exchange, basicDeliverEventArgs.RoutingKey,
+                    basicDeliverEventArgs.BasicProperties, basicDeliverEventArgs.Body);
+                Channel.BasicAck(basicDeliverEventArgs.DeliveryTag, false);
+            }
+            else
+            {
+                Channel.BasicNack(basicDeliverEventArgs.DeliveryTag, false, false);
+            }
+
+            int GetRetryCount(IBasicProperties properties)
+            {
+                return (int?)properties.Headers?["Retries"] ?? Settings.MaxRetryCount;
+            }
+
+            void SetRetryProperties(IBasicProperties properties, int retryCounts)
+            {
+                var newDelay = Settings.RetryDelay * (Settings.MaxRetryCount - retryCount) * 1000;
+                properties.Headers = properties.Headers ?? new Dictionary<string, object>();
+                properties.Headers["Retries"] = retryCounts;
+                properties.Headers["x-delay"] = newDelay;
+            }
         }
     }
 }

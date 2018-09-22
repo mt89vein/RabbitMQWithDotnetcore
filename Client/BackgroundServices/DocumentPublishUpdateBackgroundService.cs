@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Domain;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,41 +18,60 @@ namespace Client
         private readonly ILogger _logger;
         private readonly IPublishService _publishService;
         private readonly DocumentPublishUpdateQueueSettings _settings;
+        private readonly IServiceProvider _provider;
 
-        public DocumentPublishUpdateBackgroundService(IOptions<DocumentPublishUpdateQueueSettings> settings,
+        public DocumentPublishUpdateBackgroundService(
+            IServiceProvider provider,
+            IOptions<DocumentPublishUpdateQueueSettings> settings,
             ILogger<DocumentPublishUpdateBackgroundService> logger,
             IPublishService publishService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _publishService = publishService ?? throw new ArgumentNullException(nameof(publishService));
             _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
+            _provider = provider;
         }
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        protected override async Task ExecuteAsync(CancellationToken cancellationToken)
         {
             await Task.Run(() =>
             {
                 for (var i = 0; i < _settings.ConsumersCount; i++)
                 {
-                    var consumerThread = new Thread(() => StartConsumer(stoppingToken));
+                    var consumerThread = new Thread(() => MakeConsumer(cancellationToken))
+                    {
+                        IsBackground = true
+                    };
                     consumerThread.Start();
                 }
-            }, stoppingToken);
+
+
+
+            }, cancellationToken);
         }
 
-        private void StartConsumer(CancellationToken stoppingToken)
+        private void MakeConsumer(CancellationToken cancellationToken)
         {
+            var s = _provider.GetServices<IPublishService>();
             _publishService.DocumentPublishUpdateProcessingService.ProcessQueue(async (message, deliveryTag) =>
             {
-                var msg = DeserializeMessage(message);
+                try
+                {
+                    var publishUpdateQueueMessage = JsonConvert.DeserializeObject<PublishUpdateQueueMessage>(message);
+                    var documentPublicationInfo = await ProcessMessage(publishUpdateQueueMessage, cancellationToken);
 
-                // отправка запроса на обновление
-                await ProcessMessage(msg, stoppingToken);
+                    return documentPublicationInfo.ResultType != PublicationResultType.Processing;
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "Возникла ошибка при обработке сообщения");
+                    return false;
+                }
 
                 /*
                  *  if Error occured.. and need to republish (Внештатные ситуации - Timeout сети и т.д) 
                  *    _publishService.DocumentPublishUpdateProcessingService.MarkAsProcessed(deliveryTag);
-                 *     if (_settings.MaxRetryCount > msg.RetryCount) {
+                 *     if (Settings.MaxRetryCount > msg.RetryCount) {
                  *          msg.RetryCount ++
                  *          _publishService.DocumentPublishUpdateService.PublishMessage(msg);
                  *          return;
@@ -61,23 +82,26 @@ namespace Client
                  *   
                  *   Если вернула error или success, то обновить данные, изменить статус документа
                  */ 
-                _publishService.DocumentPublishUpdateProcessingService.MarkAsProcessed(deliveryTag);
             }, RaiseException);
-        }
-
-        private static PublishUpdateQueueMessage DeserializeMessage(string message)
-        {
-            return JsonConvert.DeserializeObject<PublishUpdateQueueMessage>(message);
         }
 
         /// <summary>
         /// </summary>
         /// <param name="message"></param>
-        /// <param name="stoppingToken"></param>
+        /// <param name="cancellationToken"></param>
         /// <returns>must return http response message</returns>
-        private static async Task ProcessMessage(PublishUpdateQueueMessage message, CancellationToken stoppingToken)
+        private static async Task<DocumentPublicationInfo> ProcessMessage(PublishUpdateQueueMessage message, CancellationToken cancellationToken)
         {
-            await Task.Delay(0, stoppingToken);
+            await Task.Delay(0, cancellationToken);
+
+            int? loadId = null;
+            var result =  (PublicationResultType)new Random().Next(0, 3);
+            if (result == PublicationResultType.Success)
+            {
+                loadId = new Random().Next(1, int.MaxValue);
+            }
+
+            return new DocumentPublicationInfo(message.RefId, result, loadId);
         }
 
         private void RaiseException(Exception ex, ulong deliveryTag)

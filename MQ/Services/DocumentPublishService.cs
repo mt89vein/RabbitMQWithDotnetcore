@@ -3,13 +3,17 @@ using Microsoft.Extensions.Options;
 using MQ.Base;
 using MQ.Configuration;
 using MQ.Interfaces;
+using MQ.PersistentConnection;
 
 namespace MQ.Services
 {
     public class DocumentPublishService : BaseProducerService, IDocumentPublishService
     {
-        public DocumentPublishService(IOptions<DocumentPublishQueueSettings> settings, ILogger<DocumentPublishService> logger) 
-            : base(settings, logger)
+        public DocumentPublishService(
+            IPersistentConnection persistentConnection,
+            IOptions<DocumentPublishQueueSettings> settings,
+            ILogger<DocumentPublishService> logger)
+            : base(persistentConnection, settings, logger)
         {
         }
     }

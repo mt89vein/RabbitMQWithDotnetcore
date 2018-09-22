@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Domain;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,7 +17,7 @@ namespace Client
     /// В случае, если документ не будет опубликован (в случае возникновения внештатных ситуаций), он будет возвращен в конец
     /// очереди и увеличен счетчик повторных попыток.
     /// В случае, если вернут Processing, то документ уйдет в очередь для обновления статуса
-    /// В случае, если вернут Success, то будет отправлено событие о завершении
+    /// В случае, если вернут Success или Failed, то будет отправлено событие о завершении
     /// </summary>
     internal class DocumentPublishProcessingBackgroundService : BackgroundService
     {
@@ -40,7 +41,10 @@ namespace Client
             {
                 for (var i = 0; i < _settings.ConsumersCount; i++)
                 {
-                    var consumerThread = new Thread(() => MakeConsumer(cancellationToken)) {IsBackground = true};
+                    var consumerThread = new Thread(() => MakeConsumer(cancellationToken))
+                    {
+                        IsBackground = true
+                    };
                     consumerThread.Start();
                 }
             }, cancellationToken);
@@ -50,54 +54,69 @@ namespace Client
         {
             _publishService.DocumentPublishProcessingService.ProcessQueue(async (message, deliveryTag) =>
             {
-                var msg = DeserializeMessage(message);
-                await ProcessMessage(msg, cancellationToken);
+                try
+                {
+                    var publishQueueMessage = JsonConvert.DeserializeObject<PublishQueueMessage>(message);
+                    var documentPublicationInfo = await ProcessMessage(publishQueueMessage, cancellationToken);
 
-                /*
-                 * if Error occured.. and need to republish (Внештатные ситуации - Timeout сети и т.д) 
-                 * Не относится к ситуации, когда возникает ошибка при формировании документа, в этом случае сразу ошибку возвращаем
-                 *     _documentPublishProcessingService.MarkAsProcessed(deliveryTag);
-                 *     if (_settings.MaxRetryCount > msg.RetryCount) {
-                 *          msg.RetryCount ++
-                 *          _documentPublishService.PublishMessage(msg);
-                 *          return;
-                 *     }
-                 *     
-                 * if Processing returned then need to publish to update queue
-                 * 
-                 *  var updateMessage = new PublishUpdateQueueMessage
-                 *  {
-                 *      UserId = msg.UserId,
-                 *      RefId = Guid.NewGuid().ToString(),
-                 *      TimeStamp = DateTime.Now
-                 *  };
-                 *  _documentPublishUpdateService.PublishMessage(updateMessage);
-                 * 
-                 * if Success, need to update document status, and push notification
-                 */
+                    if (documentPublicationInfo.ResultType == PublicationResultType.Processing)
+                    {
+                        var updateMessage = new PublishUpdateQueueMessage
+                        {
+                            UserId = publishQueueMessage.UserId,
+                            DocumentType = publishQueueMessage.DocumentType,
+                            RevisionIdentity = publishQueueMessage.RevisionIdentity,
+                            UserData = publishQueueMessage.UserData,
+                            RefId = documentPublicationInfo.RefId,
+                            TimeStamp = DateTime.Now
+                        };
+                        _publishService.DocumentUpdateService.PublishMessage(updateMessage);
+                    }
 
-                _publishService.DocumentPublishProcessingService.MarkAsProcessed(deliveryTag);
+                    /*
+                     *  need to update document status, and push notification
+                     */
+                    return true;
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "Возникла ошибка при обработке сообщения");
+                    return false;
+                }
             }, RaiseException);
-        }
-
-        private static PublishQueueMessage DeserializeMessage(string message)
-        {
-            return JsonConvert.DeserializeObject<PublishQueueMessage>(message);
         }
 
         /// <summary>
         /// </summary>
         /// <param name="message"></param>
-        /// <param name="stoppingToken"></param>
+        /// <param name="cancellationToken"></param>
         /// <returns>must return http response message</returns>
-        private static async Task ProcessMessage(PublishQueueMessage message, CancellationToken stoppingToken)
+        private static async Task<DocumentPublicationInfo> ProcessMessage(PublishQueueMessage message,
+            CancellationToken cancellationToken)
         {
-            // make publish, get response... and return result
-            await Task.Delay(0, stoppingToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            /*
+             * build xml
+             * publish
+             * get response... 
+             * log to db
+             * return DocumentPublicationInfo
+             */
+            await Task.Delay(0, cancellationToken);
+
+            int? loadId = null;
+            var result = (PublicationResultType) new Random().Next(0, 3);
+            if (result == PublicationResultType.Success)
+            {
+                loadId = new Random().Next(1, int.MaxValue);
+            }
+
+            return new DocumentPublicationInfo(new Guid().ToString(), result, loadId);
         }
 
         private void RaiseException(Exception ex, ulong deliveryTag)
         {
+            // обработка ошибки во время отправки результата обработки сообщения
             _logger.LogError(ex, "RaiseException" + deliveryTag);
         }
     }

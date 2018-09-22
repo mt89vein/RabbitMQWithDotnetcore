@@ -6,6 +6,6 @@ namespace MQ.Interfaces
     public interface IBaseProducerService
     {
         ulong PublishMessage(IMessage message);
-        void RemoveMessage(ulong id);
+        void RemoveMessage(ulong deliveryTag);
     }
 }

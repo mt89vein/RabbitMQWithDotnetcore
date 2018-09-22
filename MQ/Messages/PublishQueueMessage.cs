@@ -41,11 +41,6 @@ namespace MQ.Messages
         /// </summary>
         public Guid Id { get; set; } = Guid.NewGuid();
 
-        /// <summary>
-        /// Количество возникших повторов
-        /// </summary>
-        public int RetryCount { get; set; }
+
     }
-
-
 }

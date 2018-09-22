@@ -1,5 +1,7 @@
 ﻿using System;
+using Domain;
 using MQ.Interfaces.Messages;
+using Newtonsoft.Json;
 
 namespace MQ.Messages
 {
@@ -24,13 +26,24 @@ namespace MQ.Messages
         public Guid Id { get; set; } = Guid.NewGuid();
 
         /// <summary>
-        /// Количество возникших повторов
-        /// </summary>
-        public int RetryCount { get; set; }
-
-        /// <summary>
         /// Ссылка на идентификатор документа в публикуемой системе
         /// </summary>
         public string RefId { get; set; }
+
+        /// <summary>
+        /// Идентификатор документа
+        /// </summary>
+        public RevisionIdentity RevisionIdentity { get; set; }
+
+        /// <summary>
+        /// Тип документа
+        /// </summary>
+        public DocumentType DocumentType { get; set; }
+
+        /// <summary>
+        /// Данные, необходимые для обработки запроса
+        /// </summary>
+        [JsonConverter(typeof(ConcreteTypeConverter<SomeDocumentPublishUserData>))]
+        public IUserData UserData { get; set; }
     }
 }
