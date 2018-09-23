@@ -1,12 +1,13 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQ.Configuration;
+using MQ.Interfaces;
 using MQ.Messages;
-using MQ.Services.AggregatorService;
 using Newtonsoft.Json;
 
 namespace Client
@@ -21,17 +22,17 @@ namespace Client
     internal class DocumentPublishProcessingBackgroundService : BackgroundService
     {
         private readonly ILogger _logger;
-        private readonly IPublishService _publishService;
+        private readonly IServiceProvider _serviceProvider;
         private readonly DocumentPublishQueueSettings _settings;
 
         public DocumentPublishProcessingBackgroundService(
             IOptions<DocumentPublishQueueSettings> settings,
             ILogger<DocumentPublishProcessingBackgroundService> logger,
-            IPublishService publishService)
+            IServiceProvider serviceProvider)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
-            _publishService = publishService ?? throw new ArgumentNullException(nameof(publishService));
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         }
 
         protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -40,15 +41,26 @@ namespace Client
             {
                 for (var i = 0; i < _settings.ConsumersCount; i++)
                 {
-                    var consumerThread = new Thread(() => MakeConsumer(cancellationToken)) {IsBackground = true};
-                    consumerThread.Start();
+                    using (var scope = _serviceProvider.CreateScope())
+                    {
+                        var documentPublishProcessingService = scope.ServiceProvider
+                            .GetRequiredService<IDocumentPublishProcessingService>();
+                        var documentPublishUpdateService = scope.ServiceProvider
+                            .GetRequiredService<IDocumentPublishUpdateService>();
+                        var consumerThread = new Thread(() => MakeConsumer(documentPublishProcessingService,
+                            documentPublishUpdateService, cancellationToken))
+                        {
+                            IsBackground = true
+                        };
+                        consumerThread.Start();
+                    }
                 }
             }, cancellationToken);
         }
 
-        private void MakeConsumer(CancellationToken cancellationToken)
+        private void MakeConsumer(IDocumentPublishProcessingService documentPublishProcessingService, IDocumentPublishUpdateService documentPublishUpdateService, CancellationToken cancellationToken)
         {
-            _publishService.DocumentPublishProcessingService.ProcessQueue(async (message, deliveryTag) =>
+            documentPublishProcessingService.ProcessQueue(async (message, deliveryTag) =>
             {
                 var msg = DeserializeMessage(message);
                 await ProcessMessage(msg, cancellationToken);
@@ -76,7 +88,7 @@ namespace Client
                  * if Success, need to update document status, and push notification
                  */
 
-                _publishService.DocumentPublishProcessingService.MarkAsProcessed(deliveryTag);
+               // documentPublishUpdateService.PublishMessage(updateMessage);
             }, RaiseException);
         }
 

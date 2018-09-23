@@ -1,12 +1,13 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQ.Configuration;
+using MQ.Interfaces;
 using MQ.Messages;
-using MQ.Services.AggregatorService;
 using Newtonsoft.Json;
 
 namespace Client
@@ -14,15 +15,15 @@ namespace Client
     internal class DocumentPublishUpdateBackgroundService : BackgroundService
     {
         private readonly ILogger _logger;
-        private readonly IPublishService _publishService;
+        private readonly IServiceProvider _serviceProvider;
         private readonly DocumentPublishUpdateQueueSettings _settings;
 
         public DocumentPublishUpdateBackgroundService(IOptions<DocumentPublishUpdateQueueSettings> settings,
             ILogger<DocumentPublishUpdateBackgroundService> logger,
-            IPublishService publishService)
+            IServiceProvider serviceProvider)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _publishService = publishService ?? throw new ArgumentNullException(nameof(publishService));
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
             _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
         }
 
@@ -32,20 +33,28 @@ namespace Client
             {
                 for (var i = 0; i < _settings.ConsumersCount; i++)
                 {
-                    var consumerThread = new Thread(() => StartConsumer(stoppingToken));
-                    consumerThread.Start();
+                    using (var scope = _serviceProvider.CreateScope())
+                    {
+                        var documentPublishUpdateProcessingService = scope.ServiceProvider
+                            .GetRequiredService<IDocumentPublishUpdateProcessingService>();
+                        var consumerThread = new Thread(() => MakeConsumer(documentPublishUpdateProcessingService, stoppingToken))
+                        {
+                            IsBackground = true
+                        };
+                        consumerThread.Start();
+                    }
                 }
             }, stoppingToken);
         }
 
-        private void StartConsumer(CancellationToken stoppingToken)
+        private void MakeConsumer(IDocumentPublishUpdateProcessingService documentPublishUpdateProcessingService, CancellationToken cancellationToken)
         {
-            _publishService.DocumentPublishUpdateProcessingService.ProcessQueue(async (message, deliveryTag) =>
+            documentPublishUpdateProcessingService.ProcessQueue(async (message, deliveryTag) =>
             {
                 var msg = DeserializeMessage(message);
 
                 // отправка запроса на обновление
-                await ProcessMessage(msg, stoppingToken);
+                await ProcessMessage(msg, cancellationToken);
 
                 /*
                  *  if Error occured.. and need to republish (Внештатные ситуации - Timeout сети и т.д) 
@@ -61,7 +70,7 @@ namespace Client
                  *   
                  *   Если вернула error или success, то обновить данные, изменить статус документа
                  */ 
-                _publishService.DocumentPublishUpdateProcessingService.MarkAsProcessed(deliveryTag);
+                documentPublishUpdateProcessingService.MarkAsProcessed(deliveryTag);
             }, RaiseException);
         }
 
