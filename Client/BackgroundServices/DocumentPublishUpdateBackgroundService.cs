@@ -7,8 +7,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQ.Configuration;
+using MQ.Interfaces;
 using MQ.Messages;
-using MQ.Services.AggregatorService;
 using Newtonsoft.Json;
 
 namespace Client
@@ -16,18 +16,15 @@ namespace Client
     internal class DocumentPublishUpdateBackgroundService : BackgroundService
     {
         private readonly ILogger _logger;
-        private readonly IPublishService _publishService;
         private readonly DocumentPublishUpdateQueueSettings _settings;
         private readonly IServiceProvider _provider;
 
         public DocumentPublishUpdateBackgroundService(
             IServiceProvider provider,
             IOptions<DocumentPublishUpdateQueueSettings> settings,
-            ILogger<DocumentPublishUpdateBackgroundService> logger,
-            IPublishService publishService)
+            ILogger<DocumentPublishUpdateBackgroundService> logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _publishService = publishService ?? throw new ArgumentNullException(nameof(publishService));
             _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
             _provider = provider;
         }
@@ -38,22 +35,22 @@ namespace Client
             {
                 for (var i = 0; i < _settings.ConsumersCount; i++)
                 {
-                    var consumerThread = new Thread(() => MakeConsumer(cancellationToken))
+                    using (var scope = _provider.CreateScope())
                     {
-                        IsBackground = true
-                    };
-                    consumerThread.Start();
+                        var documentPublishUpdateProcessingService = scope.ServiceProvider.GetRequiredService<IDocumentPublishUpdateProcessingService>();
+                        var consumerThread = new Thread(() => MakeConsumer(documentPublishUpdateProcessingService, cancellationToken))
+                        {
+                            IsBackground = true
+                        };
+                        consumerThread.Start();
+                    }
                 }
-
-
-
             }, cancellationToken);
         }
 
-        private void MakeConsumer(CancellationToken cancellationToken)
+        private void MakeConsumer(IDocumentPublishUpdateProcessingService documentPublishUpdateProcessingService, CancellationToken cancellationToken)
         {
-            var s = _provider.GetServices<IPublishService>();
-            _publishService.DocumentPublishUpdateProcessingService.ProcessQueue(async (message, deliveryTag) =>
+            documentPublishUpdateProcessingService.ProcessQueue(async (message, deliveryTag) =>
             {
                 try
                 {

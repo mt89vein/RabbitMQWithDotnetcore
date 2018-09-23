@@ -7,7 +7,6 @@ using MQ.Configuration;
 using MQ.Interfaces;
 using MQ.PersistentConnection;
 using MQ.Services;
-using MQ.Services.AggregatorService;
 using RabbitMQ.Client;
 
 namespace Client.Extensions
@@ -58,11 +57,10 @@ namespace Client.Extensions
 
                 return new DefaultPersistentConnection(factory, logger, config.RetryConnectionAttempt ?? 5);
             });
-            services.AddSingleton<IDocumentPublishProcessingService, DocumentPublishProcessingService>();
-            services.AddSingleton<IDocumentPublishService, DocumentPublishService>();
-            services.AddSingleton<IDocumentPublishUpdateService, DocumentPublishUpdateService>();
-            services.AddSingleton<IDocumentPublishUpdateProcessingService, DocumentPublishUpdateProcessingService>();
-            services.AddSingleton<IPublishService, PublishService>();
+            services.AddScoped<IDocumentPublishProcessingService, DocumentPublishProcessingService>();
+            services.AddScoped<IDocumentPublishService, DocumentPublishService>();
+            services.AddScoped<IDocumentPublishUpdateService, DocumentPublishUpdateService>();
+            services.AddScoped<IDocumentPublishUpdateProcessingService, DocumentPublishUpdateProcessingService>();
         }
 
         public static void RegisterBackgroundWorkers(this IServiceCollection services)
