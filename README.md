@@ -6,5 +6,3 @@
 2. Pipeline architecture
 3. Shared connection
 4. Multi-threading
-
-See v2 branch.

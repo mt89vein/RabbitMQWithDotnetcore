@@ -26,7 +26,6 @@ namespace Client
                     options => options.SerializerSettings.ReferenceLoopHandling = ReferenceLoopHandling.Ignore
                 );
             services.AddCors();
-            services.AddLogging();
             services.AddSingleton<ILoggerFactory, LoggerFactory>();
             services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
             services.AddQueueSettings(Configuration);
