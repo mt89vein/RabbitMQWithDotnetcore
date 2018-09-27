@@ -59,7 +59,7 @@ namespace MQ.PersistentConnection
 
         public bool TryConnect()
         {
-            _logger.LogInformation("Попытка подключиться к RabbitMQ");
+            _logger.LogInformation("Try to connect to Rabbit MQ");
 
             lock (_syncRoot)
             {

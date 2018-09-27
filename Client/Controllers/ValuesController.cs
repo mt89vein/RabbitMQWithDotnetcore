@@ -1,7 +1,8 @@
 ﻿using System;
 using Domain;
 using Microsoft.AspNetCore.Mvc;
-using MQ.Interfaces;
+using MQ.Abstractions.Messages;
+using MQ.Abstractions.Producers.PublishServices;
 using MQ.Messages;
 
 namespace Client.Controllers
@@ -10,26 +11,30 @@ namespace Client.Controllers
     [ApiController]
     public class ValuesController : ControllerBase
     {
-        private readonly IDocumentPublishService _documentPublishService;
+        private readonly IDocumentOnePublishProducerService _documentOnePublishProducerService;
+        private readonly IDocumentTwoPublishProducerService _documentTwoPublishProducerService;
 
-        public ValuesController(IDocumentPublishService documentPublishService)
+        public ValuesController(IDocumentOnePublishProducerService documentOnePublishProducerService,
+            IDocumentTwoPublishProducerService documentTwoPublishProducerService)
         {
-            _documentPublishService = documentPublishService ??
-                                      throw new ArgumentNullException(nameof(documentPublishService));
+            _documentTwoPublishProducerService = documentTwoPublishProducerService ??
+                                                 throw new ArgumentNullException(nameof(documentTwoPublishProducerService));
+            _documentOnePublishProducerService = documentOnePublishProducerService ??
+                                      throw new ArgumentNullException(nameof(documentOnePublishProducerService));
         }
 
         // GET api/values
         [HttpGet]
         public ActionResult Get()
         {
-            for (int i = 0; i < 1; i++)
+            for (int i = 0; i < 5; i++)
             {
-                var message = new PublishQueueMessage
+                var message = new DocumentPublishEventMessage
                 {
                     DocumentType = DocumentType.One,
                     TimeStamp = DateTime.Now,
                     UserId = i,
-                    UserData = new SomeDocumentPublishUserData
+                    UserInputData = new DocumentOnePublishUserInputData
                     {
                         IsInitialVersion = false,
                         LoadId = String.Empty,
@@ -41,7 +46,7 @@ namespace Client.Controllers
                     }
                 };
 
-                _documentPublishService.PublishMessage(message);
+                _documentOnePublishProducerService.PublishMessage(message);
             }
             return Ok();
         }
@@ -50,7 +55,27 @@ namespace Client.Controllers
         [HttpGet("{id}")]
         public ActionResult<string> Get(int id)
         {
-            return "value";
+            for (int i = 0; i < 5; i++)
+            {
+                var message = new DocumentPublishEventMessage
+                {
+                    DocumentType = DocumentType.Two,
+                    TimeStamp = DateTime.Now,
+                    UserId = i + 5000,
+                    UserInputData = new DocumentTwoPublishUserInputData
+                    {
+                        LoadId = String.Empty,
+                        Login = "login",
+                        Password = "Password",
+                        Version = 0,
+                        RegistryNumber = "123",
+                    }
+                };
+
+                _documentTwoPublishProducerService.PublishMessage(message);
+            }
+
+            return "";
         }
 
         // POST api/values

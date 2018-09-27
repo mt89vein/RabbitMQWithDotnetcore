@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using MQ.Configuration;
+using MQ.Configuration.Base;
 using MQ.PersistentConnection;
 using RabbitMQ.Client;
 
-namespace MQ.Base
+namespace MQ.Services.Base
 {
     public abstract class BaseQueueService : IDisposable
     {
