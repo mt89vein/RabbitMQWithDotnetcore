@@ -7,7 +7,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQ.Abstractions.Base;
 using MQ.Configuration.Base;
-using MQ.Messages;
 using MQ.PersistentConnection;
 using Newtonsoft.Json;
 using RabbitMQ.Client;
@@ -34,77 +33,7 @@ namespace MQ.Services.Base
             Channel = CreateChannel();
         }
 
-        public void MarkAsProcessed(ulong deliveryTag)
-        {
-            if (!PersistentConnection.IsConnected)
-            {
-                PersistentConnection.TryConnect();
-            }
-
-            Channel.BasicAck(deliveryTag, false);
-        }
-
-        public void ReEnqueue(ulong deliveryTag)
-        {
-            if (!PersistentConnection.IsConnected)
-            {
-                PersistentConnection.TryConnect();
-            }
-
-            Channel.BasicNack(deliveryTag, false, true);
-        }
-
-        public void MarkAsCancelled(ulong deliveryTag)
-        {
-            if (!PersistentConnection.IsConnected)
-            {
-                PersistentConnection.TryConnect();
-            }
-
-            Channel.BasicReject(deliveryTag, false);
-        }
-
-        /// <summary>
-        /// Читать сообщения из очереди
-        /// </summary>
-        /// <param name="onDequeue">Обработчик сообщения</param>
-        /// <param name="onError">Обработчик ошибки</param>
-        public void ProcessQueue<T>(Func<T, ulong, bool> onDequeue, Action<Exception, ulong> onError)
-            where T : EventMessage
-        {
-            if (!PersistentConnection.IsConnected)
-            {
-                PersistentConnection.TryConnect();
-            }
-
-            var consumer = new EventingBasicConsumer(Channel);
-            consumer.Received += (sender, ea) =>
-            {
-                var parsedMessage = JsonConvert.DeserializeObject<T>(Encoding.UTF8.GetString(ea.Body));
-                var processingSucceded = onDequeue.Invoke(parsedMessage, ea.DeliveryTag);
-                try
-                {
-                    if (processingSucceded)
-                    {
-                        MarkAsProcessed(ea.DeliveryTag);
-                    }
-                    else
-                    {
-                        InternalReEnqueue(ea);
-                    }
-                }
-                catch (Exception e)
-                {
-                    onError.Invoke(e, ea.DeliveryTag);
-                    Logger.LogError(e, "Ошибка во время отправки результата обработки сообщения");
-                }
-            };
-            consumer.Shutdown += (sender, ea) => ProcessQueue(onDequeue, onError);
-
-            Channel.BasicConsume(Settings.QueueName, false, consumer);
-        }
-
-        public void ProcessQueue<T>(Func<T, ulong, Task<bool>> onDequeue, Action<Exception, ulong> onError)
+        public void ProcessQueue<T>(Func<T, Task<bool>> onDequeue, Action<Exception, T> onError)
             where T : EventMessage
         {
             if (!PersistentConnection.IsConnected)
@@ -120,7 +49,7 @@ namespace MQ.Services.Base
                 {
                     TypeNameHandling = TypeNameHandling.Auto
                 });
-                var processingSucceded = await onDequeue.Invoke(parsedMessage, ea.DeliveryTag);
+                var processingSucceded = await onDequeue.Invoke(parsedMessage);
                 try
                 {
                     if (processingSucceded)
@@ -129,12 +58,12 @@ namespace MQ.Services.Base
                     }
                     else
                     {
-                        InternalReEnqueue(ea);
+                        ReEnqueue(ea);
                     }
                 }
                 catch (Exception e)
                 {
-                    onError.Invoke(e, ea.DeliveryTag);
+                    onError.Invoke(e, parsedMessage);
                     Logger.LogError(e, "Ошибка во время отправки результата обработки сообщения");
                 }
             };
@@ -142,6 +71,16 @@ namespace MQ.Services.Base
             consumer.Shutdown += (sender, ea) => ProcessQueue(onDequeue, onError);
 
             Channel.BasicConsume(Settings.QueueName, false, consumer);
+        }
+
+        protected void MarkAsProcessed(ulong deliveryTag)
+        {
+            if (!PersistentConnection.IsConnected)
+            {
+                PersistentConnection.TryConnect();
+            }
+            Logger.LogDebug($"Mark as processed - {deliveryTag}");
+            Channel.BasicAck(deliveryTag, false);
         }
 
         protected sealed override IModel CreateChannel()
@@ -152,7 +91,7 @@ namespace MQ.Services.Base
             return channel;
         }
 
-        protected void InternalReEnqueue(BasicDeliverEventArgs basicDeliverEventArgs)
+        protected void ReEnqueue(BasicDeliverEventArgs basicDeliverEventArgs)
         {
             if (!PersistentConnection.IsConnected)
             {
@@ -168,10 +107,12 @@ namespace MQ.Services.Base
                 Channel.BasicPublish(basicDeliverEventArgs.Exchange, basicDeliverEventArgs.RoutingKey,
                     basicDeliverEventArgs.BasicProperties, basicDeliverEventArgs.Body);
                 Channel.BasicAck(basicDeliverEventArgs.DeliveryTag, false);
+                Logger.LogDebug($"Retry, {basicDeliverEventArgs.Body} - {retryCount}");
             }
             else
             {
                 Channel.BasicNack(basicDeliverEventArgs.DeliveryTag, false, false);
+                Logger.LogDebug($"BasicNack {basicDeliverEventArgs.Body}");
             }
 
             int GetRetryCount(IBasicProperties properties)

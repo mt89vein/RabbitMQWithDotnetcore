@@ -18,6 +18,11 @@
         /// <summary>
         /// В обработке
         /// </summary>
-        Processing
+        Processing,
+
+        /// <summary>
+        /// Ошибка валидации XML
+        /// </summary>
+        XmlValidationError
     }
 }

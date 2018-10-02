@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Domain;
@@ -8,9 +9,11 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQ.Abstractions.Base;
 using MQ.Abstractions.Messages;
+using MQ.Abstractions.Repositories;
 using MQ.Configuration.Base;
+using MQ.Models;
 
-namespace Client
+namespace Client.BackgroundServices.Base
 {
     public abstract class DocumentPublishUpdateBackgroundService<
         TDocumentPublishUpdateConsumerService,
@@ -20,11 +23,14 @@ namespace Client
         where TDocumentPublishUpdateConsumerServiceSettings : DocumentPublishUpdateQueueSettings, new()
         where TPublishUpdateMessage : DocumentPublishUpdateEventMessage
     {
+        private readonly ILogger<DocumentPublishUpdateBackgroundService<
+            TDocumentPublishUpdateConsumerService,
+            TDocumentPublishUpdateConsumerServiceSettings,
+            TPublishUpdateMessage>> _logger;
+
         private readonly IServiceProvider _provider;
         private readonly DocumentPublishUpdateQueueSettings _settings;
-
-        protected readonly ILogger<DocumentPublishUpdateBackgroundService<TDocumentPublishUpdateConsumerService,
-            TDocumentPublishUpdateConsumerServiceSettings, TPublishUpdateMessage>> Logger;
+        private readonly List<IServiceScope> _scopes;
 
         protected DocumentPublishUpdateBackgroundService(
             IServiceProvider provider,
@@ -32,9 +38,10 @@ namespace Client
             ILogger<DocumentPublishUpdateBackgroundService<TDocumentPublishUpdateConsumerService,
                 TDocumentPublishUpdateConsumerServiceSettings, TPublishUpdateMessage>> logger)
         {
-            Logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
             _provider = provider;
+            _scopes = new List<IServiceScope>();
         }
 
         protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -43,84 +50,110 @@ namespace Client
             {
                 for (var i = 0; i < _settings.ConsumersCount; i++)
                 {
-                    using (var scope = _provider.CreateScope())
-                    {
-                        var documentPublishUpdateProcessingService = scope.ServiceProvider
-                            .GetRequiredService<TDocumentPublishUpdateConsumerService>();
-                        var consumerThread =
-                            new Thread(() => MakeConsumer(documentPublishUpdateProcessingService, cancellationToken))
-                            {
-                                IsBackground = true
-                            };
-                        consumerThread.Start();
-                    }
+                    var scope = _provider.CreateScope();
+                    var publishDocumentTaskRepository = scope.ServiceProvider
+                        .GetRequiredService<IPublishDocumentTaskRepository>();
+                    var documentPublishUpdateProcessingService = scope.ServiceProvider
+                        .GetRequiredService<TDocumentPublishUpdateConsumerService>();
+                    var consumerThread =
+                        new Thread(() => MakeConsumer(publishDocumentTaskRepository,
+                            documentPublishUpdateProcessingService, cancellationToken))
+                        {
+                            IsBackground = true
+                        };
+                    _scopes.Add(scope);
+                    consumerThread.Start();
                 }
             }, cancellationToken);
         }
 
-        private void MakeConsumer(TDocumentPublishUpdateConsumerService documentPublishUpdateConsumerService,
+        private void MakeConsumer(IPublishDocumentTaskRepository publishDocumentTaskRepository,
+            TDocumentPublishUpdateConsumerService documentPublishUpdateConsumerService,
             CancellationToken cancellationToken)
         {
-            documentPublishUpdateConsumerService.ProcessQueue<TPublishUpdateMessage>(async (message, deliveryTag) =>
+            documentPublishUpdateConsumerService.ProcessQueue<TPublishUpdateMessage>(async message =>
             {
                 try
                 {
-                    var documentPublicationInfo = await ProcessMessage(message, cancellationToken);
+                    var publishDocumentTask = await publishDocumentTaskRepository.Get(message.Id);
+
+                    if (publishDocumentTask == null)
+                    {
+                        return false;
+                    }
+
+                    if (publishDocumentTask.IsFinished)
+                    {
+                        return true;
+                    }
+
+                    var documentPublicationInfo = await ProcessMessage(publishDocumentTask, message, cancellationToken);
 
                     var processingFinished = documentPublicationInfo.ResultType != PublicationResultType.Processing;
 
-                    if (processingFinished)
-                    {
-                        SavePublishResult(documentPublicationInfo);
-                        SendNotification(documentPublicationInfo);
-                    }
+                    publishDocumentTaskRepository.SavePublishAttempt(publishDocumentTask, documentPublicationInfo);
+
+                    //if (processingFinished)
+                    //{
+                    //    SendNotification(documentPublicationInfo);
+                    //}
 
                     return processingFinished;
                 }
                 catch (Exception e)
                 {
-                    Logger.LogError(e, "Возникла ошибка при обработке сообщения");
+                    _logger.LogError(e, "Возникла ошибка при обработке сообщения");
                     return false;
                 }
-
-                /*
-                 *  if Error occured.. and need to republish (Внештатные ситуации - Timeout сети и т.д) 
-                 *    _publishService.DocumentOnePublishUpdateConsumerService.MarkAsProcessed(deliveryTag);
-                 *     if (Settings.MaxRetryCount > msg.RetryCount) {
-                 *          msg.RetryCount ++
-                 *          _publishService.DocumentOnePublishUpdateProducerService.PublishMessage(msg);
-                 *          return;
-                 *     }
-                 *      
-                 *   Если опять вернула processing... положить в очередь в конец и взять другое
-                 *   [Рассмотреть случай, когда всего один-два документа в очереди и они туда сюда ходят.. добавить Delay между ретраями]
-                 *   
-                 *   Если вернула error или success, то обновить данные, изменить статус документа
-                 */
             }, RaiseException);
         }
 
         /// <summary>
+        /// Обработчик сообщения
         /// </summary>
-        /// <param name="message"></param>
-        /// <param name="cancellationToken"></param>
+        /// <param name="publishDocumentTask">Задача</param>
+        /// <param name="message">Сообщение</param>
+        /// <param name="cancellationToken">Токен отмены</param>
         /// <returns>must return http response message</returns>
-        protected abstract Task<DocumentPublicationInfo> ProcessMessage(TPublishUpdateMessage message,
-            CancellationToken cancellationToken);
-
-        protected void RaiseException(Exception ex, ulong deliveryTag)
+        protected virtual async Task<DocumentPublicationInfo> ProcessMessage(PublishDocumentTask publishDocumentTask,
+            TPublishUpdateMessage message,
+            CancellationToken cancellationToken)
         {
-            Logger.LogError(ex, "RaiseException" + deliveryTag);
+            /***
+             * 
+             * Perform update document state logic from another system
+             *  
+             * */
+            await Task.Delay(1500, cancellationToken);
+
+            int? loadId = null;
+            var result = (PublicationResultType)new Random().Next(0, 3);
+            if (result == PublicationResultType.Success)
+            {
+                loadId = new Random().Next(1, int.MaxValue);
+            }
+
+            return new DocumentPublicationInfo(message.RefId, result, loadId, "document update request",
+                "document update response");
         }
 
-        protected virtual void SendNotification(DocumentPublicationInfo documentPublicationInfo)
+        /// <summary>
+        /// Обработчик внутренних ошибок в работе с очередями
+        /// </summary>
+        /// <param name="ex">Ошибка</param>
+        /// <param name="message">Сообщение, которое не удалось обработать</param>
+        protected void RaiseException(Exception ex, TPublishUpdateMessage message)
         {
-            Logger.LogInformation($"document update notification, refId is: {documentPublicationInfo.RefId}");
+            _logger.LogError(ex, "RaiseException" + message.Id);
         }
 
-        protected virtual void SavePublishResult(DocumentPublicationInfo documentPublicationInfo)
+        public override void Dispose()
         {
-            Logger.LogInformation($"document update save result, refId is: {documentPublicationInfo.RefId}");
+            foreach (var scope in _scopes)
+            {
+                scope?.Dispose();
+            }
+            base.Dispose();
         }
     }
 }

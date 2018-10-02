@@ -10,7 +10,7 @@ namespace MQ.Abstractions.Base
         /// <summary>
         /// Время постановки в очередь
         /// </summary>
-        public DateTime TimeStamp { get; set; }
+        public DateTime CreatedAt { get; set; }
 
         /// <summary>
         /// Идентификатор пользователя
@@ -20,6 +20,6 @@ namespace MQ.Abstractions.Base
         /// <summary>
         /// Идентификатор
         /// </summary>
-        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid Id { get; set; }
     }
 }

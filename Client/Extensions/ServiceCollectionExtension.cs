@@ -1,4 +1,8 @@
 ﻿using System;
+using Client.BackgroundServices;
+using Client.ViewModels;
+using Client.ViewModelValidators;
+using FluentValidation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -7,12 +11,15 @@ using MQ.Abstractions.Consumers.PublishServices;
 using MQ.Abstractions.Consumers.PublishUpdateServices;
 using MQ.Abstractions.Producers.PublishServices;
 using MQ.Abstractions.Producers.UpdateServices;
+using MQ.Abstractions.Repositories;
 using MQ.Configuration.Base;
 using MQ.Configuration.Consumers.PublishSettings;
 using MQ.Configuration.Consumers.PublishUpdateSettings;
 using MQ.Configuration.Producers.PublishSettings;
 using MQ.Configuration.Producers.PublishUpdateSettings;
+using MQ.Messages;
 using MQ.PersistentConnection;
+using MQ.Repositories;
 using MQ.Services;
 using MQ.Services.ProducerServices.PublishServices;
 using MQ.Services.ProducerServices.PublishUpdateServices;
@@ -93,7 +100,7 @@ namespace Client.Extensions
             });
         }
 
-        public static void RegisterDocumentPublicationServices(this IServiceCollection services)
+        public static void AddDocumentPublicationServices(this IServiceCollection services)
         {
             services.AddSingleton<IPersistentConnection>(sp =>
             {
@@ -133,12 +140,22 @@ namespace Client.Extensions
             services.AddScoped<IDocumentOnePublishUpdateConsumerService, DocumentOnePublishUpdateConsumerService>();
         }
 
-        public static void RegisterBackgroundWorkers(this IServiceCollection services)
+        public static void AddBackgroundWorkers(this IServiceCollection services)
         {
             services.AddHostedService<DocumentOnePublishProcessingBackgroundService>();
             services.AddHostedService<DocumentOnePublishUpdateProcessingBackgroundService>();
             services.AddHostedService<DocumentTwoPublishProcessingBackgroundService>();
             services.AddHostedService<DocumentTwoPublishUpdateProcessingBackgroundService>();
+        }
+
+        public static void AddValidators(this IServiceCollection services)
+        {
+            services.AddTransient<IValidator<PublishTaskViewModel<DocumentOnePublishUserInputData>>, DocumentOnePublishTaskViewModelValidator>();
+        }
+
+        public static void AddRepositories(this IServiceCollection services)
+        {
+            services.AddScoped<IPublishDocumentTaskRepository, PublishDocumentTaskEfRepository>();
         }
     }
 }

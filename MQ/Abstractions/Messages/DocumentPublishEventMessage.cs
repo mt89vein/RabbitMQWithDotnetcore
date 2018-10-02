@@ -12,7 +12,12 @@ namespace MQ.Abstractions.Messages
         /// <summary>
         /// Идентификатор документа
         /// </summary>
-        public RevisionIdentity RevisionIdentity { get; set; }
+        public int DocumentId { get; set; }
+
+        /// <summary>
+        /// Ревизия документа
+        /// </summary>
+        public int DocumentRevision { get; set; }
 
         /// <summary>
         /// Тип документа

@@ -2,11 +2,13 @@
 {
     public class DocumentPublicationInfo
     {
-        public DocumentPublicationInfo(string refId, PublicationResultType resultType, long? loadId)
+        public DocumentPublicationInfo(string refId, PublicationResultType resultType, long? loadId, string request, string response)
         {
             RefId = refId;
             ResultType = resultType;
             LoadId = loadId;
+            Request = request;
+            Response = response;
         }
 
         /// <summary>
@@ -23,5 +25,30 @@
         /// Идентификатор загрузки
         /// </summary>
         public long? LoadId { get; }
+
+        /// <summary>
+        /// Запрос
+        /// </summary>
+        public string Request { get; }
+
+        /// <summary>
+        /// Ответ
+        /// </summary>
+        public string Response { get; }
+
+        /// <summary>
+        /// Были ли возвращены ошибки от ЕИС (имеется ввиду внутренние ошибки)
+        /// </summary>
+        public bool IsHasEisError => TryCheckIsHasEisErrors(Response);
+
+        private static bool TryCheckIsHasEisErrors(string response)
+        {
+            if (!string.IsNullOrWhiteSpace(response))
+            {
+                // check response..
+            }
+
+            return false;
+        }
     }
 }

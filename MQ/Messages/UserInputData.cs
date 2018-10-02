@@ -6,9 +6,4 @@
 
         public string Password { get; set; }
     }
-
-    public class DocmentTwoPublishUserInputData : UserInputData
-    {
-        public string RegistryNumber { get; set; }
-    }
 }
