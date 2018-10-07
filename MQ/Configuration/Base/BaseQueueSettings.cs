@@ -1,7 +1,27 @@
-﻿namespace MQ.Configuration.Base
+﻿using System;
+using Microsoft.Extensions.Options;
+
+namespace MQ.Configuration.Base
 {
     public class BaseQueueSettings
     {
+        public BaseQueueSettings () { }
+
+        public BaseQueueSettings(IOptions<ConnectionStrings> connectionStrings)
+        {
+            ConnectionString = connectionStrings?.Value.RabbitMQ ?? throw new ArgumentNullException(nameof(connectionStrings));
+        }
+
+        /// <summary>
+        /// Строка подключения к базе данных
+        /// </summary>
+        public string ConnectionString { get; set; }
+
+        /// <summary>
+        /// Количество воркеров
+        /// </summary>
+        public int ConsumersCount { get; set; } = 5;
+
         /// <summary>
         /// Название очереди
         /// </summary>

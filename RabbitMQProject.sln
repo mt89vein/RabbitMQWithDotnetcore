@@ -7,7 +7,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MQ", "MQ\MQ.csproj", "{688F
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Domain", "Domain\Domain.csproj", "{413B3827-A7D7-4C86-A0CD-2626D860BFF4}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Client", "Client\Client.csproj", "{54C7FCE9-A7FD-47DA-819A-743FDDE2CE6E}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Api", "Api\Api.csproj", "{54C7FCE9-A7FD-47DA-819A-743FDDE2CE6E}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{3E7CAAA1-1E24-41FE-B03C-A9947D7A6358}"
 	ProjectSection(SolutionItems) = preProject

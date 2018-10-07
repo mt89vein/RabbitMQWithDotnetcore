@@ -31,6 +31,10 @@ namespace MQ.Migrations
 
                     b.Property<int>("DocumentType");
 
+                    b.Property<bool>("IsDelivered");
+
+                    b.Property<bool>("IsHasEisErrors");
+
                     b.Property<long?>("LoadId");
 
                     b.Property<int>("OrganizationId");
@@ -41,7 +45,7 @@ namespace MQ.Migrations
 
                     b.Property<int>("State");
 
-                    b.Property<DateTime>("UpdatedAt");
+                    b.Property<DateTime?>("UpdatedAt");
 
                     b.Property<int>("UserId");
 

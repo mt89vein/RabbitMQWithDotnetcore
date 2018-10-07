@@ -10,7 +10,7 @@ namespace MQ.Abstractions.Base
         /// <summary>
         /// Время постановки в очередь
         /// </summary>
-        public DateTime CreatedAt { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
 
         /// <summary>
         /// Идентификатор пользователя

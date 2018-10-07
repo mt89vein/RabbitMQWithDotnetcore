@@ -7,3 +7,4 @@
 3. Shared connection
 4. Multi-threading
 5. Exactly-once delivery/processing guaranteed
+6. Real-time dashboard

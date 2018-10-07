@@ -1,4 +1,6 @@
-﻿namespace Domain
+﻿using System;
+
+namespace Domain
 {
     public class DocumentPublicationInfo
     {
@@ -43,7 +45,7 @@
 
         private static bool TryCheckIsHasEisErrors(string response)
         {
-            if (!string.IsNullOrWhiteSpace(response))
+            if (!String.IsNullOrWhiteSpace(response))
             {
                 // check response..
             }

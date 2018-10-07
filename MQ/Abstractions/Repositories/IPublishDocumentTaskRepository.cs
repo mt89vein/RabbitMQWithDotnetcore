@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Domain;
 using MQ.Models;
+using MQ.Repositories;
 
 namespace MQ.Abstractions.Repositories
 {
@@ -12,11 +14,25 @@ namespace MQ.Abstractions.Repositories
         /// </summary>
         /// <param name="id">Идентификатор</param>
         /// <returns>Задача на публикацию</returns>
-        Task<PublishDocumentTask> Get(Guid id);
+        Task<PublishDocumentTask> GetAsync(Guid id);
 
         /// <summary>
-        /// Сохранить результат попытки публикации
+        /// Получить попытки публикации по идентификатору задачи
         /// </summary>
-        void SavePublishAttempt(PublishDocumentTask publishDocumentTask, DocumentPublicationInfo documentPublicationInfo);
+        /// <param name="publishDocumentTaskId">Идентификатор задачи</param>
+        /// <returns>Попытки публикации для конкретной задаче</returns>
+        Task<List<PublishDocumentTaskAttempt>> GetAttemtpsAsync(Guid publishDocumentTaskId);
+
+        /// <summary>
+        /// Получить задачи на публикацию по фильтру
+        /// </summary>
+        /// <returns>Список задач по фильтру</returns>
+        Task<DataPage<PublishDocumentTask>> GetTasksByFilterAsync(PublishDocumentTaskFilter filter = null);
+
+        /// <summary>
+        /// Сохранить задачу на публикацию по идентификатору
+        /// </summary>
+        /// <param name="publishDocumentTask"></param>
+        void Save(PublishDocumentTask publishDocumentTask);
     }
 }

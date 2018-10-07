@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using Domain;
+using MQ.Messages;
+using Newtonsoft.Json;
 
 namespace MQ.Models
 {
@@ -13,6 +15,30 @@ namespace MQ.Models
         {
             PublishDocumentTaskAttempts = new List<PublishDocumentTaskAttempt>();
             State = PublishState.None;
+            RefId = null;
+            UpdatedAt = null;
+            LoadId = null;
+        }
+
+        public PublishDocumentTask(DocumentPublishEventMessage message)
+        {
+            PublishDocumentTaskAttempts = new List<PublishDocumentTaskAttempt>();
+            State = PublishState.None;
+            RefId = null;
+            UpdatedAt = null;
+            LoadId = null;
+            Id = message.Id;
+            DocumentId = message.DocumentId;
+            DocumentRevision = message.DocumentRevision;
+            DocumentType = message.DocumentType;
+            UserId = message.UserId;
+            State = PublishState.None;
+            CreatedAt = message.CreatedAt;
+            OrganizationId = message.OrganizationId;
+            Payload = JsonConvert.SerializeObject(message.UserInputData, new JsonSerializerSettings
+            {
+                TypeNameHandling = TypeNameHandling.Auto
+            });
         }
 
         /// <summary>
@@ -58,7 +84,7 @@ namespace MQ.Models
         /// <summary>
         /// Дата последнего обновления задачи
         /// </summary>
-        public DateTime UpdatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         /// <summary>
         /// Идентификатор пакета
@@ -76,6 +102,16 @@ namespace MQ.Models
         public PublishState State { get; set; }
 
         /// <summary>
+        /// Доставлен результат о публикации
+        /// </summary>
+        public bool IsDelivered { get; set; }
+
+        /// <summary>
+        /// В одной из попыток публикации имеется внутреняя ошибка в ЕИС
+        /// </summary>
+        public bool IsHasEisErrors { get; set; }
+
+        /// <summary>
         /// Завершена ли работа над задачей
         /// </summary>
         public bool IsFinished =>
@@ -87,6 +123,7 @@ namespace MQ.Models
         /// <summary>
         /// Список попыток публикации документа
         /// </summary>
+        [JsonIgnore]
         public List<PublishDocumentTaskAttempt> PublishDocumentTaskAttempts { get; set; }
     }
 }

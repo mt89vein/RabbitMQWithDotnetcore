@@ -17,4 +17,11 @@ namespace Integration
 
         public DateTime StartTime { get; set; }
     }
+
+    public class ConcreteXmlDocumentTypeThree : IOuterXmlDocument
+    {
+        public string TestName { get; set; }
+
+        public DateTime EndTime { get; set; }
+    }
 }
