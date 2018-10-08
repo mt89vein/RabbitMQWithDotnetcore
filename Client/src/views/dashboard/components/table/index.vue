@@ -98,7 +98,9 @@
 					}
 				} else {
 					if (this.filter.PageSize > this.publicationTasksFiltered.length && isSatisfiedForCurrentFilter) {
-						this.publicationTasks.unshift(publicationTask)
+						this.publicationTasks.push(publicationTask)
+					}
+					if (!publicationTask.UpdatedAt && isSatisfiedForCurrentFilter) {
 						this.totalItems++
 					}
 				}
