@@ -18,7 +18,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Domain\Domain.csproj" />
     <ProjectReference Include="..\Integration\Integration.csproj" />
-    <ProjectReference Include="..\MQ\MQ.csproj" />
   </ItemGroup>
 
 </Project>

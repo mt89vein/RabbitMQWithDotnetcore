@@ -1,12 +1,14 @@
 import { HTTP } from '../utils/axios'
 
 class PublishDocumentTaskService {
-	url = 'api/publishDocumentTask'
 	async getTasksByFilter (filter) {
-		return HTTP.get(this.url + '/GetTasksByFilter', { params: filter })
+		return HTTP.get('api/publishDocumentTask/GetTasksByFilter', { params: filter })
 	}
 	async getAttemptsByTaskId (id) {
-		return HTTP.get(this.url + '/GetAttemptsByTaskId', { params: { id } })
+		return HTTP.get('api/publishDocumentTask/GetAttemptsByTaskId', { params: { id } })
+	}
+	async reEnqueueTaskById (id) {
+		return HTTP.post('api/publishDocumentTask/ReEnqueueTaskById', `"${id}"`)
 	}
 }
 

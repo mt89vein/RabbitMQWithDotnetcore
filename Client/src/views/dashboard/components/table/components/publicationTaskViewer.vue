@@ -53,6 +53,11 @@
 					<el-tag :type="getStateTagType(row.State)">{{convertToState(row.State)}}</el-tag>
 				</template>
 			</el-table-column>
+			<el-table-column label="Actions" :width="130">
+				<template slot-scope="{row}">
+					<button @click="reEnqueue(row.Id)">Restart</button>
+				</template>
+			</el-table-column>
 		</el-table>
 
 		<el-pagination background
@@ -148,6 +153,18 @@
 			emitEvents () {
 				this.$emit('submit')
 			},
+			reEnqueue (publicationTaskId) {
+				PublicationTaskService.reEnqueueTaskById(publicationTaskId)
+					.then(response => {
+						window.console.log(response)
+					}, fail => {
+						Notification.error({
+							title: 'Ошибка',
+							message: fail,
+							type: 'error',
+						})
+					})
+			}
 		},
 	}
 </script>

@@ -35,7 +35,7 @@
 					DocumentRevision: null,
 					Enqueued: [startOfDay(new Date()), endOfDay(new Date())],
 					IsDelivered: null,
-					IsHasEisErrors: null,
+					HasEisExceptions: null,
 					OrganizationId: null,
 					UserId: null,
 					States: [],
@@ -131,12 +131,12 @@
 					satisfied = isAfter(publicationTask.CreatedAt, this.filter.Enqueued[0]) &&
 						isBefore(publicationTask.CreatedAt, this.filter.Enqueued[1])
 				}
-				if (this.filter.IsHasEisErrors !== null) {
+				if (this.filter.HasEisExceptions !== null) {
 					satisfied =
-						(this.filter.IsHasEisErrors == 'true' &&
-							publicationTask.IsHasEisErrors) ||
-						(this.filter.IsHasEisErrors == 'false' &&
-							!publicationTask.IsHasEisErrors)
+						(this.filter.HasEisExceptions == 'true' &&
+							publicationTask.HasEisExceptions) ||
+						(this.filter.HasEisExceptions == 'false' &&
+							!publicationTask.HasEisExceptions)
 				}
 				if (this.filter.IsDelivered !== null) {
 					satisfied =

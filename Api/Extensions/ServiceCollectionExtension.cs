@@ -1,17 +1,19 @@
 ﻿using System;
 using Api.BackgroundServices;
 using Api.Services;
+using Infrastructure.EventBus.Abstractions;
+using Infrastructure.EventBus.Configuration;
+using Infrastructure.EventBus.QueueServices;
+using Integration.Abstractions;
+using Integration.Abstractions.QueueServices;
+using Integration.Configuration;
+using Integration.EventHandlers;
+using Integration.QueueServices;
+using Integration.Repositories;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using MQ.Abstractions.QueueServices;
-using MQ.Abstractions.Repositories;
-using MQ.Configuration;
-using MQ.Configuration.Base;
-using MQ.PersistentConnection;
-using MQ.Repositories;
-using MQ.Services;
 using RabbitMQ.Client;
 
 namespace Api.Extensions
@@ -49,7 +51,8 @@ namespace Api.Extensions
                     Port = config.Port ?? 5672,
                     NetworkRecoveryInterval = TimeSpan.FromSeconds(config.NetworkRecoveryInterval ?? 10),
                     RequestedHeartbeat = config.RequestedHeartbeat,
-                    AutomaticRecoveryEnabled = true
+                    AutomaticRecoveryEnabled = true,
+                    ContinuationTimeout = TimeSpan.FromSeconds(60)
                 };
 
                 //if (!String.IsNullOrEmpty(config.UserName))
@@ -71,12 +74,17 @@ namespace Api.Extensions
             services.AddScoped<IDocumentPublishResultQueueService, DocumentPublishResultQueueService>();
         }
 
+        public static void AddDocumentEventMessageHandlers(this IServiceCollection services)
+        {
+            services.AddScoped<DocumentPublishMessageEventHandler>();
+            services.AddScoped<DocumentPublishUpdateMessageEventHandler>();
+            services.AddScoped<DocumentPublishCancelMessageEventHandler>();
+            services.AddScoped<DocumentPublishResultMessageEventHandler>();
+        } 
+
         public static void AddBackgroundWorkers(this IServiceCollection services)
         {
             services.AddHostedService<DocumentPublishBackgroundService>();
-            services.AddHostedService<DocumentPublishUpdateBackgroundService>();
-            services.AddHostedService<DocumentPublishCancelBackgroundService>();
-            services.AddHostedService<DocumentPublishResultBackgroundService>();
         }
 
         public static void AddRepositories(this IServiceCollection services)

@@ -1,7 +1,6 @@
-﻿using System.Linq;
-using Api.Extensions;
+﻿using Api.Extensions;
 using Api.Hubs;
-using FluentValidation.AspNetCore;
+using Integration.Models;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -9,7 +8,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using MQ.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 
@@ -50,6 +48,7 @@ namespace Api
             services.AddQueueSettings(Configuration);
             services.AddRepositories();
             services.AddServices();
+            services.AddDocumentEventMessageHandlers();
             services.AddDocumentPublicationServices();
             services.AddBackgroundWorkers();
             services.AddCors(options => options.AddPolicy("CorsPolicy", builder =>
@@ -69,6 +68,7 @@ namespace Api
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
+                app.UseDatabaseErrorPage();
             }
             else
             {

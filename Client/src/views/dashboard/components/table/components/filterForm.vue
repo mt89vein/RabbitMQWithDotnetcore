@@ -58,7 +58,7 @@
 						<el-input v-model="model.OrganizationId" type="number"/>
 					</el-form-item>
 					<el-form-item label="Внутренние ошибки ЕИС">
-						<el-select v-model="model.IsHasEisErrors" clearable>
+						<el-select v-model="model.HasEisExceptions" clearable>
 							<el-option label="Без ошибок" value="false"/>
 							<el-option label="С ошибками" value="true"/>
 						</el-select>
@@ -112,7 +112,7 @@
 					DocumentRevision: null,
 					Enqueued: [],
 					IsDelivered: null,
-					IsHasEisErrors: null,
+					HasEisExceptions: null,
 					OrganizationId: null,
 					UserId: null,
 					States: [],
@@ -132,7 +132,7 @@
 				this.model.DocumentRevision = null
 				this.model.Enqueued = []
 				this.model.IsDelivered = null
-				this.model.IsHasEisErrors = null
+				this.model.HasEisExceptions = null
 				this.model.OrganizationId = null
 				this.model.UserId = null
 				this.model.States = []

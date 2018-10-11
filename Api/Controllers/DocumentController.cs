@@ -1,9 +1,9 @@
 ﻿using System;
 using Domain;
+using Domain.AdditionalPublicationData;
+using Integration.Abstractions.QueueServices;
+using Integration.EventMessages;
 using Microsoft.AspNetCore.Mvc;
-using MQ.Abstractions.QueueServices;
-using MQ.Messages;
-using MQ.Messages.UserInputData;
 
 namespace Api.Controllers
 {
@@ -33,7 +33,7 @@ namespace Api.Controllers
                     Id = Guid.NewGuid(),
                     OrganizationId = i,
                     UserId = i,
-                    UserInputData = new DocumentOnePublishUserInputData
+                    AdditionalPublicationData = new DocumentOnePublishAdditionalPublicationData
                     {
                         Password = "test",
                         Login = "1",
@@ -59,7 +59,7 @@ namespace Api.Controllers
                 Id = guid,
                 OrganizationId = 21,
                 UserId = 5,
-                UserInputData = new DocumentOnePublishUserInputData
+                AdditionalPublicationData = new DocumentOnePublishAdditionalPublicationData
                 {
                     Password = "test",
                     Login = "1",

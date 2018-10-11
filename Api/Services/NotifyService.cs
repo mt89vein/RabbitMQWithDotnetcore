@@ -1,7 +1,8 @@
 ﻿using System.Threading.Tasks;
 using Api.Hubs;
+using Integration.Abstractions;
+using Integration.Models;
 using Microsoft.AspNetCore.SignalR;
-using MQ.Models;
 using Newtonsoft.Json;
 
 namespace Api.Services
@@ -24,7 +25,7 @@ namespace Api.Services
 
             });
 
-            return _hub.Clients.All.SendAsync(message.State.ToString(), msg);
+            return _hub.Clients.All.SendAsync("OnPublicationStateChanged", msg);
         }
     }
 }

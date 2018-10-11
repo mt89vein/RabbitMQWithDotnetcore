@@ -1,5 +1,4 @@
 import * as signalR from '@aspnet/signalr'
-import { PublishState } from '../shared/enums'
 
 export default class NotificationService {
 	constructor (callback) {
@@ -17,19 +16,10 @@ export default class NotificationService {
 	}
 
 	subscribe () {
-		window.console.log('subscribed')
-		for (let ps of PublishState) {
-			this.hubConnection.on(ps.Name, this.callback)
-		}
+		this.hubConnection.on('OnPublicationStateChanged', this.callback)
 		this.hubConnection.start()
 		this.hubConnection.onclose(() => {
 			this.subscribe()
 		})
-	}
-
-	unsubscribe () {
-		if (this.hubConnection) {
-			this.hubConnection.stop()
-		}
 	}
 }

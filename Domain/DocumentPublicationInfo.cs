@@ -41,9 +41,9 @@ namespace Domain
         /// <summary>
         /// Были ли возвращены ошибки от ЕИС (имеется ввиду внутренние ошибки)
         /// </summary>
-        public bool IsHasEisError => TryCheckIsHasEisErrors(Response);
+        public bool HasInnerExceptions => TryCheckHasInnerExceptions(Response);
 
-        private static bool TryCheckIsHasEisErrors(string response)
+        private static bool TryCheckHasInnerExceptions(string response)
         {
             if (!String.IsNullOrWhiteSpace(response))
             {

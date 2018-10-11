@@ -1,20 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Api.Services;
-using Domain;
-using Integration;
+using Integration.Configuration;
+using Integration.EventHandlers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using MQ.Abstractions.QueueServices;
-using MQ.Abstractions.Repositories;
-using MQ.Configuration;
-using MQ.Messages;
-using MQ.Models;
 
 namespace Api.BackgroundServices
 {
@@ -23,321 +16,108 @@ namespace Api.BackgroundServices
     /// </summary>
     public class DocumentPublishBackgroundService : BackgroundService
     {
+        private readonly IOptionsMonitor<DocumentPublishCancelQueueSettings> _documentPublishCancelQueueSettings;
+        private readonly IOptionsMonitor<DocumentPublishQueueSettings> _documentPublishQueueSettings;
+        private readonly IOptionsMonitor<DocumentPublishResultQueueSettings> _documentPublishResultQueueSettings;
+        private readonly IOptionsMonitor<DocumentPublishUpdateQueueSettings> _documentPublishUpdateQueueSettings;
         private readonly ILogger<DocumentPublishBackgroundService> _logger;
-        private readonly INotifyService _notifyService;
-        private readonly List<IServiceScope> _scopes;
         private readonly IServiceProvider _serviceProvider;
-        private readonly DocumentPublishQueueSettings _settings;
+        private readonly Dictionary<Task, IServiceScope> _taskScopes;
+        private CancellationTokenSource _cts;
 
         public DocumentPublishBackgroundService(
-            INotifyService notifyService,
-            IOptions<DocumentPublishQueueSettings> settings,
             ILogger<DocumentPublishBackgroundService> logger,
-            IServiceProvider serviceProvider)
+            IServiceProvider serviceProvider,
+            IOptionsMonitor<DocumentPublishQueueSettings> documentPublishQueueSettings,
+            IOptionsMonitor<DocumentPublishUpdateQueueSettings> documentPublishUpdateQueueSettings,
+            IOptionsMonitor<DocumentPublishCancelQueueSettings> documentPublishCancelQueueSettings,
+            IOptionsMonitor<DocumentPublishResultQueueSettings> documentPublishResultQueueSettings)
         {
-            _notifyService = notifyService ?? throw new ArgumentNullException(nameof(notifyService));
+            _documentPublishQueueSettings = documentPublishQueueSettings ??
+                                            throw new ArgumentNullException(nameof(documentPublishQueueSettings));
+            _documentPublishUpdateQueueSettings = documentPublishUpdateQueueSettings ??
+                                                  throw new ArgumentNullException(
+                                                      nameof(documentPublishUpdateQueueSettings));
+            _documentPublishCancelQueueSettings = documentPublishCancelQueueSettings ??
+                                                  throw new ArgumentNullException(
+                                                      nameof(documentPublishCancelQueueSettings));
+            _documentPublishResultQueueSettings = documentPublishResultQueueSettings ??
+                                                  throw new ArgumentNullException(
+                                                      nameof(documentPublishResultQueueSettings));
             _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _settings = settings?.Value ?? throw new ArgumentNullException(nameof(settings));
-            _scopes = new List<IServiceScope>();
+            _taskScopes = new Dictionary<Task, IServiceScope>();
         }
 
-        protected override async Task ExecuteAsync(CancellationToken cancellationToken)
+        protected override Task ExecuteAsync(CancellationToken cancellationToken)
         {
-            await Task.Run(() =>
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+            _logger.LogDebug("DocumentPublishBackgroundService is starting.");
+
+            cancellationToken.Register(() =>
+                _logger.LogDebug("DocumentPublishBackgroundService is stopping."));
+
+            _logger.LogDebug($"DocumentPublishBackgroundService doing background work.");
+
+            Start<DocumentPublishMessageEventHandler>(_cts.Token, _documentPublishQueueSettings.CurrentValue.ConsumersCount);
+            Start<DocumentPublishUpdateMessageEventHandler>(_cts.Token, _documentPublishUpdateQueueSettings.CurrentValue.ConsumersCount);
+            Start<DocumentPublishCancelMessageEventHandler>(_cts.Token, _documentPublishCancelQueueSettings.CurrentValue.ConsumersCount);
+            Start<DocumentPublishResultMessageEventHandler>(_cts.Token, _documentPublishResultQueueSettings.CurrentValue.ConsumersCount);
+
+            _documentPublishQueueSettings.OnChange(async settings =>
             {
-                for (var i = 0; i < _settings.ConsumersCount; i++)
+                if (_cts != null && !_cts.IsCancellationRequested)
                 {
-                    var scope = _serviceProvider.CreateScope();
-                    var publishDocumentTaskRepository = scope.ServiceProvider
-                        .GetRequiredService<IPublishDocumentTaskRepository>();
-                    var documentPublishQueueService = scope.ServiceProvider
-                        .GetRequiredService<IDocumentPublishQueueService>();
-                    var consumerThread = new Thread(() => MakeConsumer(publishDocumentTaskRepository,
-                        documentPublishQueueService, cancellationToken))
-                    {
-                        IsBackground = true
-                    };
-                    _scopes.Add(scope);
-                    consumerThread.Start();
+                    _logger.LogDebug($"DocumentPublishBackgroundService is stopping.");
+                    _cts.Cancel();
+                    await CleanUp();
+                    _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    _logger.LogDebug($"DocumentPublishBackgroundService is starting AGAIN");
+                    Start<DocumentPublishMessageEventHandler>(_cts.Token, _documentPublishQueueSettings.CurrentValue.ConsumersCount);
+                    Start<DocumentPublishUpdateMessageEventHandler>(_cts.Token, _documentPublishUpdateQueueSettings.CurrentValue.ConsumersCount);
+                    Start<DocumentPublishCancelMessageEventHandler>(_cts.Token, _documentPublishCancelQueueSettings.CurrentValue.ConsumersCount);
+                    Start<DocumentPublishResultMessageEventHandler>(_cts.Token, _documentPublishResultQueueSettings.CurrentValue.ConsumersCount);
                 }
-            }, cancellationToken);
+            });
+
+            return Task.CompletedTask;
         }
 
-        /// <summary>
-        /// Загрузить во внешнюю систему файлы вложений
-        /// </summary>
-        /// <param name="message">Сообщение</param>
-        /// <param name="cancellationToken">Токен отмены</param>
-        /// <returns></returns>
-        private Task<IEnumerable<string>> LoadAttachmentsAsync(DocumentPublishEventMessage message,
-            CancellationToken cancellationToken)
+        private async Task CleanUp()
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            // load attachments before build xml document
-            return Task.FromResult(Enumerable.Empty<string>());
-        }
-
-        /// <summary>
-        /// Сформировать POCO класс формата внешней системы
-        /// </summary>
-        /// <param name="message">Сообщение</param>
-        /// <param name="attachments">Результат предварительной загрузки вложений</param>
-        /// <param name="cancellationToken">Токен отмены</param>
-        /// <returns>POCO xml класс</returns>
-        private Task<IOuterXmlDocument> MapToOuterSystemFormatAsync(DocumentPublishEventMessage message,
-            IEnumerable<string> attachments, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            IOuterXmlDocument xmlDocument;
-            switch (message.DocumentType)
+            _logger.LogDebug($"CLEAN UP STARTED");
+            await Task.Delay(5000);
+            foreach (var taskScope in _taskScopes)
             {
-                case DocumentType.One:
-                    xmlDocument = new ConcreteXmlDocumentTypeOne();
-                    break;
-                case DocumentType.Two:
-                    xmlDocument = new ConcreteXmlDocumentTypeTwo();
-                    break;
-                case DocumentType.Three:
-                    xmlDocument = new ConcreteXmlDocumentTypeThree();
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(DocumentType));
+                taskScope.Key?.Dispose();
+                taskScope.Value?.Dispose();
             }
-            // use mapper to map from domain document to xml POCO document
-            return Task.FromResult(xmlDocument);
+            _taskScopes.Clear();
+            _logger.LogDebug($"CLEAN UP ENDED");
         }
 
-        /// <summary>
-        /// Поставить на очередь на обновление результата публикации
-        /// </summary>
-        /// <param name="message">Сообщение с данными для апдейта</param>
-        /// <param name="refId">Идентификатор по которому можно запросить результат публикации</param>
-        /// <returns>Создает задачу на обновление результата публикации</returns>
-        private DocumentPublishUpdateEventMessage CreatePublishUpdateMessage(
-            DocumentPublishEventMessage message, string refId)
+
+        private void Start<TDocumentPublishMessageEventHandler>(CancellationToken cancellationToken, int consumerCount)
+            where TDocumentPublishMessageEventHandler : IBaseDocumentMessageEventHandler
         {
-            return new DocumentPublishUpdateEventMessage
+            for (var i = 0; i < consumerCount; i++)
             {
-                Id = message.Id,
-                UserId = message.UserId,
-                RefId = refId,
-                CreatedAt = DateTime.Now
-            };
-        }
-
-        /// <summary>
-        /// Default Error handler..
-        /// </summary>
-        /// <param name="ex">Пойманная ошибка</param>
-        /// <param name="publishMessage">Сообщение</param>
-        protected virtual void RaiseException(Exception ex, DocumentPublishEventMessage publishMessage)
-        {
-            _logger.LogError(ex, "RaiseException" + publishMessage.Id);
+                var scope = _serviceProvider.CreateScope();
+                var task = Task.Factory.StartNew(() => scope.ServiceProvider.GetRequiredService<TDocumentPublishMessageEventHandler>()
+                    .Start(cancellationToken), TaskCreationOptions.LongRunning);
+                _taskScopes.Add(task, scope);
+            }
         }
 
         public override void Dispose()
         {
-            foreach (var scope in _scopes)
+            foreach (var taskScope in _taskScopes)
             {
-                scope?.Dispose();
+                taskScope.Value?.Dispose();
+                taskScope.Key?.Dispose();
             }
             base.Dispose();
-        }
-
-        private void MakeConsumer(IPublishDocumentTaskRepository publishDocumentTaskRepository,
-            IDocumentPublishQueueService documentPublishQueueService,
-            CancellationToken cancellationToken)
-        {
-            documentPublishQueueService.ProcessQueue<DocumentPublishEventMessage>(async message =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    var publishDocumentTask = await publishDocumentTaskRepository.GetAsync(message.Id);
-
-                    if (publishDocumentTask == null)
-                    {
-                        publishDocumentTask = new PublishDocumentTask(message);
-                        publishDocumentTaskRepository.Save(publishDocumentTask);
-                        await Task.Delay(300, cancellationToken);
-                        await _notifyService.SendNotificationAsync(publishDocumentTask);
-                    }
-
-                    if (!CheckIsNeedToProcessMessage(publishDocumentTask))
-                    {
-                        return true;
-                    }
-
-                    var documentPublicationInfo = await ProcessMessage(message, cancellationToken);
-
-                    SavePublishTaskInfo(publishDocumentTaskRepository, publishDocumentTask, documentPublicationInfo);
-
-                    await _notifyService.SendNotificationAsync(publishDocumentTask);
-
-                    if (documentPublicationInfo.ResultType == PublicationResultType.Processing)
-                    {
-                        var updateMessage = CreatePublishUpdateMessage(message, documentPublicationInfo.RefId);
-                        documentPublishQueueService.PublishMessage(updateMessage);
-
-                        return false;
-                    }
-
-                    var documentPublishResultEventMessage = new DocumentPublishResultEventMessage
-                    {
-                        UserId = message.UserId,
-                        Id = message.Id,
-                        CreatedAt = message.CreatedAt,
-                        LoadId = documentPublicationInfo.LoadId,
-                        ResultType = documentPublicationInfo.ResultType,
-                    };
-
-                    documentPublishQueueService.PublishMessage(documentPublishResultEventMessage);
-
-                    return true;
-                }
-                catch (Exception e)
-                {
-                    _logger.LogError(e, "Возникла ошибка при обработке сообщения");
-                    return false;
-                }
-            }, RaiseException);
-        }
-
-        private void SavePublishTaskInfo(IPublishDocumentTaskRepository publishDocumentTaskRepository,
-            PublishDocumentTask publishDocumentTask, DocumentPublicationInfo documentPublicationInfo)
-        {
-            var publishDocumentTaskAttempt = new PublishDocumentTaskAttempt
-            {
-                PublishDocumentTaskId = publishDocumentTask.Id,
-                Response = documentPublicationInfo.Response,
-                Request = documentPublicationInfo.Request,
-                IsHasEisError = documentPublicationInfo.IsHasEisError,
-                Result = documentPublicationInfo.ResultType
-            };
-
-            publishDocumentTask.State = ConvertToPublishState(documentPublicationInfo.ResultType);
-            publishDocumentTask.IsHasEisErrors = publishDocumentTask.IsHasEisErrors ||
-                                                 publishDocumentTaskAttempt.IsHasEisError;
-            publishDocumentTask.LoadId = documentPublicationInfo.LoadId;
-            publishDocumentTask.RefId = documentPublicationInfo.RefId;
-            publishDocumentTask.UpdatedAt = DateTime.Now;
-            publishDocumentTask.PublishDocumentTaskAttempts.Add(publishDocumentTaskAttempt);
-            publishDocumentTaskRepository.Save(publishDocumentTask);
-            _logger.LogDebug(
-                $"id={publishDocumentTask.DocumentId} PublishDocumentTask.State= {publishDocumentTask.State} attempt result= {publishDocumentTaskAttempt.Result}");
-
-            PublishState ConvertToPublishState(PublicationResultType resultType)
-            {
-                switch (resultType)
-                {
-                    case PublicationResultType.Success:
-                        return PublishState.Published;
-                    case PublicationResultType.Failed:
-                        return PublishState.Failed;
-                    case PublicationResultType.Processing:
-                        return PublishState.Processing;
-                    case PublicationResultType.XmlValidationError:
-                        return PublishState.XmlValidationError;
-                    default:
-                        throw new ArgumentOutOfRangeException(nameof(resultType));
-                }
-            }
-        }
-
-        /// <summary>
-        /// Проверить, нужно ли обрабатывать сообщение
-        /// </summary>
-        /// <param name="publishDocumentTask">Задача</param>
-        /// <returns>True, если сообщение еще не было обработано</returns>
-        private static bool CheckIsNeedToProcessMessage(PublishDocumentTask publishDocumentTask)
-        {
-            if (publishDocumentTask.IsFinished)
-            {
-                return false;
-            }
-
-            // Processing.. no actions needed, just return false.
-            if (publishDocumentTask.State == PublishState.Processing)
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// Проверить документ на наличие ошибок перед отправкой
-        /// </summary>
-        /// <param name="xmlDocument">Сериализованный документ</param>
-        /// <returns></returns>
-        private bool ValidateXmlDocument(object xmlDocument)
-        {
-            // validate logic
-            return true;
-        }
-
-        /// <summary>
-        /// Конвертировать POCO в XML
-        /// </summary>
-        /// <param name="xmlDocument">POCO xml класс</param>
-        /// <returns>Сериализованный документ</returns>
-        private static object SerializeXmlDocument(IOuterXmlDocument xmlDocument)
-        {
-            // create xml serializer
-            // use memory stream...
-            // return serialized document
-            return xmlDocument.ToString();
-        }
-
-        /// <summary>
-        /// Отправить документ во внешний сервис
-        /// </summary>
-        /// <param name="serializedDocument">Сериализованный документ</param>
-        /// <param name="cancellationToken">Токен отмены</param>
-        /// <returns>Результат публикации</returns>
-        private Task<DocumentPublicationInfo> SendXmlDocumentAsync(object serializedDocument,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            int? loadId = null;
-            var publicationResult = (PublicationResultType) new Random().Next(0, 3);
-            if (publicationResult == PublicationResultType.Success)
-            {
-                loadId = new Random().Next(1, int.MaxValue);
-            }
-
-            var documentPublicationInfo = new DocumentPublicationInfo(Guid.NewGuid().ToString(), publicationResult,
-                loadId, serializedDocument.ToString(), "document publish response");
-
-            return Task.FromResult(documentPublicationInfo);
-        }
-
-        /// <summary>
-        /// Обработать сообщение
-        /// </summary>
-        /// <param name="message">Сообщение</param>
-        /// <param name="cancellationToken">Токен отмены</param>
-        /// <returns>must return http response eventMessage</returns>
-        private async Task<DocumentPublicationInfo> ProcessMessage(DocumentPublishEventMessage message,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            await Task.Delay(5000, cancellationToken);
-            var loadedAttachments = await LoadAttachmentsAsync(message, cancellationToken);
-            var outerSystemFormat = await MapToOuterSystemFormatAsync(message, loadedAttachments, cancellationToken);
-            var serializedXmlDocument = SerializeXmlDocument(outerSystemFormat);
-            var isValidXmlDocument = ValidateXmlDocument(serializedXmlDocument);
-
-            if (!isValidXmlDocument)
-            {
-                return new DocumentPublicationInfo(null, PublicationResultType.XmlValidationError, null,
-                    serializedXmlDocument.ToString(), null);
-            }
-
-            return await SendXmlDocumentAsync(serializedXmlDocument, cancellationToken);
         }
     }
 }
